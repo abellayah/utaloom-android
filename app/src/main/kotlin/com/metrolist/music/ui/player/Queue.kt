@@ -100,6 +100,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import com.metrolist.music.LocalNavController
+import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
@@ -107,6 +108,9 @@ import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.QueueEditLockKey
 import com.metrolist.music.constants.UseNewPlayerDesignKey
+import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.db.entities.Playlist
+import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.move
 import com.metrolist.music.extensions.toggleRepeatMode
@@ -118,6 +122,7 @@ import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.MediaMetadataListItem
+import com.metrolist.music.ui.component.TextFieldDialog
 import com.metrolist.music.ui.menu.PlayerMenu
 import com.metrolist.music.ui.menu.QueueMenu
 import com.metrolist.music.ui.menu.SelectionMediaMetadataMenu
@@ -125,20 +130,24 @@ import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.makeTimeString
 import com.metrolist.music.utils.rememberPreference
+import com.metrolist.music.utils.reportException
 import com.metrolist.music.utils.safeDataStoreEdit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.time.LocalDateTime
 import kotlin.math.roundToInt
 import com.metrolist.music.constants.SleepTimerDefaultKey
 import android.widget.Toast
 import androidx.compose.runtime.derivedStateOf
 import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.Button
 
 
@@ -161,6 +170,7 @@ fun Queue(
 ) {
     val navController = LocalNavController.current
     val context = LocalContext.current
+    val database = LocalDatabase.current
     val haptic = LocalHapticFeedback.current
     val clipboardManager = LocalClipboard.current
     val menuState = LocalMenuState.current
@@ -226,6 +236,8 @@ fun Queue(
 
     val coroutineScope = rememberCoroutineScope()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var queueToSave by remember { mutableStateOf<List<MediaMetadata>?>(null) }
+    var isSavingQueue by remember { mutableStateOf(false) }
     val sleepTimerDefault by rememberPreference(SleepTimerDefaultKey, 30f)
     var sleepTimerValue by remember { mutableFloatStateOf(sleepTimerDefault) }
     val isAtDefault by remember {
@@ -1069,6 +1081,25 @@ fun Queue(
                 ) {
                     Row {
                         IconButton(
+                            enabled = mutableQueueWindows.isNotEmpty() && !isSavingQueue,
+                            onClick = {
+                                try {
+                                    queueToSave = snapshotQueueForPlaylist(mutableQueueWindows)
+                                } catch (e: Exception) {
+                                    reportException(e)
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(context.getString(R.string.queue_save_failed))
+                                    }
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 6.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.playlist_add),
+                                contentDescription = stringResource(R.string.save_queue_as_playlist),
+                            )
+                        }
+                        IconButton(
                             onClick = { locked = !locked },
                             modifier = Modifier.padding(horizontal = 6.dp),
                         ) {
@@ -1253,6 +1284,38 @@ fun Queue(
             }
         }
 
+        queueToSave?.let { queueItems ->
+            TextFieldDialog(
+                icon = { Icon(painter = painterResource(R.drawable.playlist_add), contentDescription = null) },
+                title = { Text(stringResource(R.string.save_queue_as_playlist)) },
+                initialTextFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                    stringResource(R.string.queue),
+                ),
+                isInputValid = { it.isNotBlank() },
+                autoDismiss = false,
+                onDismiss = { queueToSave = null },
+                onDone = { playlistName ->
+                    if (playlistName.isBlank() || isSavingQueue) return@TextFieldDialog
+                    queueToSave = null
+                    isSavingQueue = true
+                    coroutineScope.launch {
+                        val message = try {
+                            val playlist = database.saveQueueAsPlaylist(playlistName, queueItems)
+                            context.getString(R.string.queue_saved_as_playlist, playlist.name)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            reportException(e)
+                            context.getString(R.string.queue_save_failed)
+                        } finally {
+                            isSavingQueue = false
+                        }
+                        snackbarHostState.showSnackbar(message)
+                    }
+                },
+            )
+        }
+
         SnackbarHost(
             hostState = snackbarHostState,
             modifier =
@@ -1266,6 +1329,29 @@ fun Queue(
                     ).align(Alignment.BottomCenter),
         )
     }
+}
+
+internal fun snapshotQueueForPlaylist(windows: List<Timeline.Window>): List<MediaMetadata> {
+    require(windows.isNotEmpty())
+    return windows.map { requireNotNull(it.mediaItem.metadata) }
+}
+
+internal suspend fun MusicDatabase.saveQueueAsPlaylist(
+    name: String,
+    queueItems: List<MediaMetadata>,
+): PlaylistEntity {
+    val trimmedName = name.trim()
+    require(trimmedName.isNotEmpty())
+    require(queueItems.isNotEmpty())
+    val playlist = PlaylistEntity(name = trimmedName, bookmarkedAt = LocalDateTime.now(), isLocal = true)
+    withContext(Dispatchers.IO) {
+        withTransaction {
+            insert(playlist)
+            queueItems.forEach { insert(it) }
+            addSongsToPlaylist(Playlist(playlist, 0, emptyList()), queueItems.map { it.id to null })
+        }
+    }
+    return playlist
 }
 
 @Composable
