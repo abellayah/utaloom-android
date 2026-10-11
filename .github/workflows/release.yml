@@ -107,14 +107,33 @@ jobs:
     needs: [version, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Generate AI Changelog & Release Notes
+        env:
+          CHANGELOG_FILE: changelog.md
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AI_MODEL: ${{ secrets.AI_MODEL }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          if ! python3 scripts/changelog.py --release "$TAG" --output release-notes.md; then
+            echo "AI changelog failed; falling back to the raw commit list."
+            { echo "## What's Changed"; git log -n 20 --pretty='- %s (%h)'; } > release-notes.md
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add changelog.md
+          git diff --staged --quiet || (git commit -m "docs(changelog): update changelog.md for $TAG [skip ci]" && git push)
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           gh release create "$TAG" dist/*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Utaloom Android $TAG" --generate-notes
+            --title "Utaloom Android $TAG" --notes-file release-notes.md
