@@ -39,8 +39,8 @@ jobs:
           keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
             -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Build FOSS debug APK and test updater
-        run: bash gradlew :app:assembleFossDebug :app:testFossDebugUnitTest --tests com.metrolist.music.utils.UpdaterTest --console=plain --max-workers=2
+      - name: Build FOSS debug APK and test updater and translation
+        run: bash gradlew :app:assembleFossDebug :app:testFossDebugUnitTest --tests com.metrolist.music.utils.UpdaterTest --tests com.metrolist.music.api.GoogleTranslationServiceTest --tests com.metrolist.music.lyrics.LyricsTranslationHelperTest --console=plain --max-workers=2
         env:
           UTALOOM_BUILD_COMMIT: ${{ github.sha }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}

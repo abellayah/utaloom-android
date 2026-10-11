@@ -10,6 +10,7 @@ import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.db.entities.SongEntity
 import com.metrolist.music.api.DeepLService
+import com.metrolist.music.api.GoogleTranslationService
 import com.metrolist.music.api.OpenRouterService
 import com.metrolist.music.api.OpenRouterStreamingService
 import kotlinx.coroutines.CoroutineScope
@@ -103,8 +104,17 @@ object LyricsTranslationHelper {
         }
     }
 
-    private fun getCacheKey(text: String, mode: String, targetLanguage: String): String {
-        return "${text.hashCode()}_${mode}_${targetLanguage}"
+    fun canTranslate(provider: String, apiKey: String, deeplApiKey: String): Boolean = when (provider) {
+        GoogleTranslationService.PROVIDER -> true
+        "DeepL" -> deeplApiKey.isNotBlank()
+        else -> apiKey.isNotBlank()
+    }
+
+    internal fun translationMode(provider: String, mode: String): String =
+        if (provider == GoogleTranslationService.PROVIDER) "Google:Literal" else mode
+
+    private fun getCacheKey(text: String, mode: String, targetLanguage: String, provider: String): String {
+        return "${text.hashCode()}_${translationMode(provider, mode)}_${targetLanguage}"
     }
 
     /**
@@ -130,7 +140,8 @@ object LyricsTranslationHelper {
         lyrics: List<LyricsEntry>,
         lyricsEntity: LyricsEntity?,
         targetLanguage: String,
-        mode: String
+        mode: String,
+        provider: String = "OpenRouter",
     ) {
         if (lyricsEntity == null || lyricsEntity.translatedLyrics.isNullOrBlank()) {
             _hasActiveTranslations.value = false
@@ -139,7 +150,7 @@ object LyricsTranslationHelper {
         }
         
         // Only load if language and mode match
-        if (lyricsEntity.translationLanguage != targetLanguage || lyricsEntity.translationMode != mode) {
+        if (lyricsEntity.translationLanguage != targetLanguage || lyricsEntity.translationMode != translationMode(provider, mode)) {
             _hasActiveTranslations.value = false
             lyrics.forEach { it.translatedTextFlow.value = null }
             return
@@ -159,7 +170,7 @@ object LyricsTranslationHelper {
             
             // Also cache them
             val fullText = nonEmptyEntries.joinToString("\n") { it.text }
-            val cacheKey = getCacheKey(fullText, mode, targetLanguage)
+            val cacheKey = getCacheKey(fullText, mode, targetLanguage, provider)
             translationCache[cacheKey] = translatedLines
             _hasActiveTranslations.value = true
         }
@@ -192,8 +203,7 @@ object LyricsTranslationHelper {
             scope.launch(Dispatchers.IO) {
                 try {
                     // Validate inputs
-                    val effectiveApiKey = if (provider == "DeepL") deeplApiKey else apiKey
-                    if (effectiveApiKey.isBlank()) {
+                    if (!canTranslate(provider, apiKey, deeplApiKey)) {
                         _status.value = TranslationStatus.Error(context.getString(com.metrolist.music.R.string.ai_error_api_key_required))
                         return@launch
                     }
@@ -218,7 +228,7 @@ object LyricsTranslationHelper {
                     val fullText = nonEmptyEntries.joinToString("\n") { it.second.text }
 
                     // Check cache first
-                    val cacheKey = getCacheKey(fullText, mode, targetLanguage)
+                    val cacheKey = getCacheKey(fullText, mode, targetLanguage, provider)
                     val cachedTranslations = translationCache[cacheKey]
                     if (cachedTranslations != null && cachedTranslations.size >= nonEmptyEntries.size) {
                         // Use cached translations
@@ -230,18 +240,17 @@ object LyricsTranslationHelper {
                         _hasActiveTranslations.value = true
                         _status.value = TranslationStatus.Success
 
-                        // Persist cached translations to DB so loadTranslationsFromDatabase can't
-                        // overwrite them with a stale empty entity (e.g. after an untranslate race).
+                        // Persist cached translations too, including after switching providers.
                         if (songId.isNotBlank() && database != null) {
                             try {
                                 val currentLyrics = database.lyrics(songId).first()
-                                if (currentLyrics != null && currentLyrics.translatedLyrics.isNullOrBlank()) {
+                                if (currentLyrics != null) {
                                     database.query {
                                         upsert(
                                             currentLyrics.copy(
                                                 translatedLyrics = cachedTranslations.joinToString("\n"),
                                                 translationLanguage = targetLanguage,
-                                                translationMode = mode,
+                                                translationMode = translationMode(provider, mode),
                                             ),
                                         )
                                     }
@@ -275,7 +284,9 @@ object LyricsTranslationHelper {
                             ?: targetLanguage
 
                     val result =
-                        if (provider == "DeepL") {
+                        if (provider == GoogleTranslationService.PROVIDER) {
+                            GoogleTranslationService.translate(fullText, targetLanguage)
+                        } else if (provider == "DeepL") {
                             Timber.d("Using DeepL for translation")
                             // DeepL only supports translation mode
                             DeepLService.translate(
@@ -366,7 +377,7 @@ object LyricsTranslationHelper {
                             }
 
                             // Cache the translations
-                            val cacheKey = getCacheKey(fullText, mode, targetLanguage)
+                            val cacheKey = getCacheKey(fullText, mode, targetLanguage, provider)
                             translationCache[cacheKey] = translatedLines
 
                             // Save to database if songId is provided
@@ -379,7 +390,7 @@ object LyricsTranslationHelper {
                                                 currentLyrics.copy(
                                                     translatedLyrics = translatedLines.joinToString("\n"),
                                                     translationLanguage = targetLanguage,
-                                                    translationMode = mode,
+                                                    translationMode = translationMode(provider, mode),
                                                 ),
                                             )
                                         }

@@ -372,13 +372,14 @@ fun OriginalLyrics(
     }
 
     // Load translations from database on initial display
-    LaunchedEffect(lines, lyricsEntity, translateLanguage, translateMode) {
+    LaunchedEffect(lines, lyricsEntity, translateLanguage, translateMode, aiProvider) {
         if (lines.isNotEmpty() && lyricsEntity != null) {
             LyricsTranslationHelper.loadTranslationsFromDatabase(
                 lyrics = lines,
                 lyricsEntity = lyricsEntity,
                 targetLanguage = translateLanguage,
                 mode = translateMode,
+                provider = aiProvider,
             )
         }
     }
@@ -386,10 +387,13 @@ fun OriginalLyrics(
     val aiApiKeyRequiredStr = stringResource(R.string.ai_api_key_required)
 
     // Listen for manual trigger
-    LaunchedEffect(showLyrics, lines.size) {
+    LaunchedEffect(
+        showLyrics, lines, aiProvider, openRouterApiKey, deeplApiKey, openRouterBaseUrl,
+        openRouterModel, translateLanguage, translateMode, deeplFormality, aiSystemPrompt, currentSong, database,
+    ) {
         LyricsTranslationHelper.manualTrigger.collect {
-            val effectiveApiKey = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
-            if (showLyrics && lines.isNotEmpty() && effectiveApiKey.isNotBlank()) {
+            val canTranslate = LyricsTranslationHelper.canTranslate(aiProvider, openRouterApiKey, deeplApiKey)
+            if (showLyrics && lines.isNotEmpty() && canTranslate) {
                 LyricsTranslationHelper.translateLyrics(
                     lyrics = lines,
                     targetLanguage = translateLanguage,
@@ -407,14 +411,14 @@ fun OriginalLyrics(
                     database = database,
                     systemPrompt = aiSystemPrompt,
                 )
-            } else if (effectiveApiKey.isBlank()) {
+            } else if (!canTranslate) {
                 Toast.makeText(context, aiApiKeyRequiredStr, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     // Listen for clear translations trigger
-    LaunchedEffect(Unit) {
+    LaunchedEffect(lines) {
         LyricsTranslationHelper.clearTranslationsTrigger.collect {
             lines.forEach { it.translatedTextFlow.value = null }
         }

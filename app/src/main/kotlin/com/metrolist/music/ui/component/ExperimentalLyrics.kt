@@ -242,13 +242,14 @@ fun ExperimentalLyrics(
         }
     }
     
-    LaunchedEffect(lines, lyricsEntity, translateLanguage, translateMode) {
+    LaunchedEffect(lines, lyricsEntity, translateLanguage, translateMode, aiProvider) {
         if (lines.isNotEmpty() && lyricsEntity != null) {
             LyricsTranslationHelper.loadTranslationsFromDatabase(
                 lyrics = lines,
                 lyricsEntity = lyricsEntity,
                 targetLanguage = translateLanguage,
-                mode = translateMode
+                mode = translateMode,
+                provider = aiProvider,
             )
         }
     }
@@ -269,8 +270,8 @@ fun ExperimentalLyrics(
         database
     ) {
         LyricsTranslationHelper.manualTrigger.collectLatest {
-            val effectiveApiKey = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
-            if (showLyrics && lines.isNotEmpty() && effectiveApiKey.isNotBlank()) {
+            val canTranslate = LyricsTranslationHelper.canTranslate(aiProvider, openRouterApiKey, deeplApiKey)
+            if (showLyrics && lines.isNotEmpty() && canTranslate) {
                 LyricsTranslationHelper.translateLyrics(
                     lyrics = lines,
                     targetLanguage = translateLanguage,
@@ -288,7 +289,7 @@ fun ExperimentalLyrics(
                     database = database,
                     systemPrompt = aiSystemPrompt,
                 )
-            } else if (effectiveApiKey.isBlank()) {
+            } else if (!canTranslate) {
                 Toast.makeText(context, context.getString(R.string.ai_api_key_required), Toast.LENGTH_SHORT).show()
             }
         }

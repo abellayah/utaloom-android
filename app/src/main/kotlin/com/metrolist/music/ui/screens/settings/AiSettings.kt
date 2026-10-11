@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.api.GoogleTranslationService
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.AiSystemPromptKey
 import com.metrolist.music.constants.DEFAULT_AI_SYSTEM_PROMPT
@@ -85,6 +86,7 @@ fun AiSettings(navController: NavController) {
             "Mistral" to "https://api.mistral.ai/v1/chat/completions",
             "Inception" to "https://api.inceptionlabs.ai/v1/chat/completions",
             "DeepL" to "https://api.deepl.com/v2/translate",
+            GoogleTranslationService.PROVIDER to GoogleTranslationService.ENDPOINT,
             "Custom" to "",
         )
 
@@ -99,6 +101,7 @@ fun AiSettings(navController: NavController) {
             "Mistral" to stringResource(R.string.ai_provider_mistral_help),
             "Inception" to stringResource(R.string.ai_provider_inception_help),
             "DeepL" to stringResource(R.string.ai_provider_deepl_help),
+            GoogleTranslationService.PROVIDER to stringResource(R.string.ai_provider_google_help),
             "Custom" to "",
         )
 
@@ -305,7 +308,7 @@ fun AiSettings(navController: NavController) {
             title = stringResource(R.string.ai_provider),
             current = aiProvider,
             values = aiProviders.keys.toList(),
-            valueText = { it },
+            valueText = { if (it == GoogleTranslationService.PROVIDER) stringResource(R.string.ai_provider_google) else it },
         )
     }
 
@@ -498,7 +501,7 @@ fun AiSettings(navController: NavController) {
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.explore_outlined),
                         title = { Text(stringResource(R.string.ai_provider)) },
-                        description = { Text(aiProvider) },
+                        description = { Text(if (aiProvider == GoogleTranslationService.PROVIDER) stringResource(R.string.ai_provider_google) else aiProvider) },
                         onClick = { showProviderDialog = true },
                         trailingContent = {
                             IconButton(onClick = { showProviderHelpDialog = true }) {
@@ -529,7 +532,16 @@ fun AiSettings(navController: NavController) {
             title = stringResource(R.string.ai_setup_guide),
             items =
                 buildList {
-                    if (aiProvider == "DeepL") {
+                    if (aiProvider == GoogleTranslationService.PROVIDER) {
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.translate),
+                                title = { Text(stringResource(R.string.ai_provider_google)) },
+                                description = { Text(stringResource(R.string.ai_provider_google_help)) },
+                                onClick = { showProviderHelpDialog = true },
+                            ),
+                        )
+                    } else if (aiProvider == "DeepL") {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.key),
@@ -598,7 +610,7 @@ fun AiSettings(navController: NavController) {
             title = stringResource(R.string.ai_translation_mode),
             items =
                 buildList {
-                    if (aiProvider != "DeepL") {
+                    if (aiProvider != "DeepL" && aiProvider != GoogleTranslationService.PROVIDER) {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.translate),
