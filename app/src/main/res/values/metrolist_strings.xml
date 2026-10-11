@@ -1033,4 +1033,16 @@
     <string name="utaloom_desktop_app" translatable="false">Utaloom for desktop</string>
     <string name="utaloom_report_issue" translatable="false">Report an Android issue</string>
     <string name="utaloom_discord_unavailable" translatable="false">Discord integration is unavailable in this build. It requires a Utaloom Discord application configured by the maintainer.</string>
+    <string name="offline_mode">Offline mode</string>
+    <string name="offline_mode_desc">Browse and play downloaded music and episodes only. Streaming, downloads and YouTube sync are paused.</string>
+    <string name="offline_mode_empty">No downloaded music or episodes. Turn off offline mode to download some first.</string>
+    <string name="disable_offline_mode">Turn off offline mode</string>
+    <string name="offline_mode_playback_error">Offline mode is enabled. Play a downloaded track, or turn off offline mode to stream.</string>
+    <string name="save_queue_as_playlist">Save queue as playlist</string>
+    <string name="queue_saved_as_playlist">Queue saved as %1$s</string>
+    <string name="queue_save_failed">Could not save queue as playlist. Please try again.</string>
+    <string name="download_quality">Download quality</string>
+    <string name="download_quality_desc">Quality for new downloads, independent of streaming. Existing downloads keep their quality.</string>
+    <string name="wifi_only_downloads">Wi-Fi / unmetered downloads only</string>
+    <string name="wifi_only_downloads_desc">Pause on metered connections and resume on Wi-Fi or another unmetered network. Metered Wi-Fi is excluded.</string>
 </resources>

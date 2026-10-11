@@ -60,6 +60,7 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.PauseSearchHistoryKey
+import com.metrolist.music.constants.OfflineModeKey
 import com.metrolist.music.constants.SearchSource
 import com.metrolist.music.constants.SearchSourceKey
 import com.metrolist.music.db.entities.SearchHistory
@@ -125,6 +126,8 @@ fun SearchScreen(
     }
 
     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
+    val offlineMode by rememberPreference(OfflineModeKey, defaultValue = false)
+    val effectiveSearchSource = if (offlineMode) SearchSource.LOCAL else searchSource
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue())
     }
@@ -136,6 +139,11 @@ fun SearchScreen(
         }
 
         focusManager.clearFocus()
+
+        if (offlineMode) {
+            query = TextFieldValue(searchQuery)
+            return
+        }
 
         when (val parsedUrl = YouTubeUrlParser.parse(searchQuery)) {
             is YouTubeUrlParser.ParsedUrl.Video -> {
@@ -203,7 +211,7 @@ fun SearchScreen(
                                     Text(
                                         text =
                                             stringResource(
-                                                when (searchSource) {
+                                                when (effectiveSearchSource) {
                                                     SearchSource.LOCAL -> R.string.search_library
                                                     SearchSource.ONLINE -> R.string.search_yt_music
                                                 },
@@ -238,6 +246,7 @@ fun SearchScreen(
                                 }
                             }
                             IconButton(
+                                enabled = !offlineMode,
                                 onClick = {
                                     searchSource =
                                         if (searchSource == SearchSource.ONLINE) {
@@ -250,7 +259,7 @@ fun SearchScreen(
                                 Icon(
                                     painter =
                                         painterResource(
-                                            when (searchSource) {
+                                            when (effectiveSearchSource) {
                                                 SearchSource.LOCAL -> R.drawable.library_music
                                                 SearchSource.ONLINE -> R.drawable.language
                                             },
@@ -285,7 +294,7 @@ fun SearchScreen(
                     .padding(top = paddingValues.calculateTopPadding())
                     .fillMaxSize(),
         ) {
-            when (searchSource) {
+            when (effectiveSearchSource) {
                 SearchSource.LOCAL -> {
                     LocalSearchScreen(
                         query = query.text,
@@ -305,11 +314,13 @@ fun SearchScreen(
                 }
             }
 
-            HideOnScrollFAB(
-                lazyListState = lazyListState,
-                icon = R.drawable.mic,
-                onClick = { navController.navigate("recognition") },
-            )
+            if (!offlineMode) {
+                HideOnScrollFAB(
+                    lazyListState = lazyListState,
+                    icon = R.drawable.mic,
+                    onClick = { navController.navigate("recognition") },
+                )
+            }
         }
     }
 

@@ -9,12 +9,16 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metrolist.music.constants.HideVideoSongsKey
+import com.metrolist.music.constants.OfflineModeKey
+import com.metrolist.music.constants.SongSortType
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.Album
 import com.metrolist.music.db.entities.Artist
 import com.metrolist.music.db.entities.LocalItem
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.extensions.matchesNormalizedQuery
+import com.metrolist.music.extensions.normalizeForSearch
 import com.metrolist.music.utils.dataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -44,12 +48,40 @@ constructor(
         combine(
             query,
             filter,
-            context.dataStore.data.map { it[HideVideoSongsKey] ?: false }.distinctUntilChanged()
-        ) { query, filter, hideVideoSongs ->
-            Triple(query, filter, hideVideoSongs)
-        }.flatMapLatest { (query, filter, hideVideoSongs) ->
+            context.dataStore.data.map {
+                (it[HideVideoSongsKey] ?: false) to (it[OfflineModeKey] ?: false)
+            }.distinctUntilChanged()
+        ) { query, filter, settings ->
+            Triple(query, filter, settings)
+        }.flatMapLatest { (query, filter, settings) ->
+            val (hideVideoSongs, offlineMode) = settings
             if (query.isEmpty()) {
                 flowOf(LocalSearchResult("", filter, emptyMap()))
+            } else if (offlineMode) {
+                if (filter != LocalFilter.ALL && filter != LocalFilter.SONG) {
+                    flowOf(LocalSearchResult(query, filter, emptyMap()))
+                } else {
+                    val normalizedQuery = query.normalizeForSearch()
+                    combine(
+                        database.downloadedSongs(SongSortType.CREATE_DATE, descending = false),
+                        database.downloadedPodcastEpisodes(SongSortType.CREATE_DATE, descending = false),
+                    ) { songs, episodes ->
+                        val matches = (songs + episodes).sortedBy { it.song.dateDownload }.filter {
+                            (!hideVideoSongs || !it.song.isVideo) && matchesNormalizedQuery(
+                                normalizedQuery,
+                                it.title,
+                                it.song.albumName,
+                                it.album?.title,
+                                it.artists.joinToString(" ") { artist -> artist.name },
+                            )
+                        }
+                        LocalSearchResult(
+                            query = query,
+                            filter = filter,
+                            map = if (matches.isEmpty()) emptyMap() else mapOf(LocalFilter.SONG to matches),
+                        )
+                    }
+                }
             } else {
                 when (filter) {
                     LocalFilter.ALL ->

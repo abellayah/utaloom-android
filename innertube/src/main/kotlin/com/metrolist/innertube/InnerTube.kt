@@ -43,6 +43,9 @@ import java.util.concurrent.TimeUnit
 class InnerTube(
     client: HttpClient? = null,
 ) {
+    @Volatile
+    var offlineMode = false
+
     private var configuredProxy: Proxy? = null
     private var configuredProxyAuth: String? = null
     private var httpClient = client ?: createClient()
@@ -159,6 +162,10 @@ class InnerTube(
 
             engine {
                 config {
+                    addInterceptor { chain ->
+                        if (offlineMode) throw IOException("Offline mode is enabled")
+                        chain.proceed(chain.request())
+                    }
                     connectionPool(okhttp3.ConnectionPool(10, 5, TimeUnit.MINUTES))
                     connectTimeout(30, TimeUnit.SECONDS)
                     readTimeout(60, TimeUnit.SECONDS)

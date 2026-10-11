@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.music.constants.OfflineModeKey
 import com.metrolist.music.constants.YtmSyncKey
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
@@ -17,7 +18,7 @@ import kotlinx.coroutines.runBlocking
 
 fun Context.isSyncEnabled(): Boolean {
     return runBlocking {
-        dataStore.get(YtmSyncKey, true) && isUserLoggedIn()
+        !dataStore.get(OfflineModeKey, false) && dataStore.get(YtmSyncKey, true) && isUserLoggedIn()
     }
 }
 

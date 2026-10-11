@@ -193,6 +193,10 @@ object LyricsTranslationHelper {
         database: MusicDatabase? = null,
         systemPrompt: String = "",
     ) {
+        if (com.metrolist.innertube.YouTube.offlineMode) {
+            _status.value = TranslationStatus.Error(context.getString(com.metrolist.music.R.string.offline_mode_playback_error))
+            return
+        }
         translationJob?.cancel()
         _status.value = TranslationStatus.Translating
 

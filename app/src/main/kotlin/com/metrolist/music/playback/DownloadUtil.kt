@@ -7,19 +7,20 @@ package com.metrolist.music.playback
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.os.Looper
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
+import androidx.media3.exoplayer.scheduler.Requirements
 import coil3.imageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
@@ -27,7 +28,9 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertubex.extraction.ContentHints
 import com.metrolist.music.constants.AudioQuality
-import com.metrolist.music.constants.AudioQualityKey
+import com.metrolist.music.constants.DownloadQualityKey
+import com.metrolist.music.constants.OfflineModeKey
+import com.metrolist.music.constants.WifiOnlyDownloadsKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.AlbumEntity
 import com.metrolist.music.db.entities.FormatEntity
@@ -35,25 +38,29 @@ import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.SongEntity
 import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
+import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.IOException
@@ -74,7 +81,7 @@ constructor(
 ) {
     private val TAG = "DownloadUtil"
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
-    private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+    private val downloadQuality by enumPreference(context, DownloadQualityKey, AudioQuality.AUTO)
     private val songUrlCache = StreamUrlCache()
     private val streamHttpClient =
         OkHttpClient.Builder()
@@ -90,36 +97,28 @@ constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val downloadPreparations = Semaphore(3)
+    private var offlineMode = false
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
-            CacheDataSource
-                .Factory()
-                .setCache(playerCache)
-                .setCacheWriteDataSinkFactory(null)
-                .setUpstreamDataSourceFactory(
-                    OkHttpDataSource.Factory(streamHttpClient),
-                ),
+            // Playback cache keys do not identify a format, so reusing them can override download quality.
+            OkHttpDataSource.Factory(streamHttpClient),
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
-            val length = if (dataSpec.length >= 0) dataSpec.length else 1
-
-            if (playerCache.isCached(mediaId, dataSpec.position, length)) {
-                return@Factory dataSpec
-            }
-
-            songUrlCache[mediaId]?.let { cachedStream ->
+            val quality = dataSpec.uri.getQueryParameter(DOWNLOAD_QUALITY_PARAMETER).toEnum(downloadQuality)
+            val streamCacheKey = downloadStreamCacheKey(mediaId, quality)
+            songUrlCache[streamCacheKey]?.let { cachedStream ->
                 return@Factory dataSpec.withResolvedStream(cachedStream)
             }
-            val cacheGeneration = songUrlCache.generation(mediaId)
+            val cacheGeneration = songUrlCache.generation(streamCacheKey)
 
             val playbackData = runBlocking(Dispatchers.IO) {
                 val song = database.songEntity(mediaId)
                 InnerTubeXPlayer.playerResponseForPlayback(
                     mediaId,
-                    audioQuality = audioQuality,
+                    audioQuality = quality,
                     connectivityManager = connectivityManager,
                     contentHints = ContentHints(
                         isExplicit = song?.explicit,
@@ -208,7 +207,7 @@ constructor(
                 }
 
             songUrlCache.put(
-                mediaId = mediaId,
+                mediaId = streamCacheKey,
                 url = streamUrl,
                 requestHeaders = playbackData.streamHeaders,
                 clientName = playbackData.streamClient,
@@ -233,7 +232,6 @@ constructor(
     val downloadNotificationHelper =
         DownloadNotificationHelper(context, ExoDownloadService.CHANNEL_ID)
 
-    @OptIn(DelicateCoroutinesApi::class)
     val downloadManager: DownloadManager =
         DownloadManager(
             context,
@@ -251,7 +249,7 @@ constructor(
                         finalException: Exception?,
                     ) {
                         if (download.state == Download.STATE_FAILED && finalException.isExpiredStreamError()) {
-                            songUrlCache.invalidate(download.request.id)
+                            invalidateStreamUrls(download.request.id)
                         }
 
                         downloads.update { map ->
@@ -282,7 +280,7 @@ constructor(
                         download: Download,
                     ) {
                         val downloadId = download.request.id
-                        songUrlCache.invalidate(downloadId)
+                        invalidateStreamUrls(downloadId)
 
                         runCatching {
                             database.updateDownloadedInfo(downloadId, false, null)
@@ -309,11 +307,55 @@ constructor(
             }
         }
         downloads.value = result
+        applyDownloadPreferences()
         scope.launch {
             result.values
                 .filter { it.state == Download.STATE_COMPLETED }
                 .forEach { removeFromPlayerCache(it.request.id) }
         }
+        scope.launch(Dispatchers.Main.immediate) {
+            context.dataStore.data
+                .map { (it[WifiOnlyDownloadsKey] ?: false) to (it[OfflineModeKey] ?: false) }
+                .distinctUntilChanged()
+                .collect { (wifiOnly, offline) ->
+                    applyDownloadPreferences(wifiOnly, offline)
+                }
+        }
+    }
+
+    fun applyDownloadPreferences(): Boolean {
+        val preferences = runBlocking(Dispatchers.IO) { context.dataStore.data.first() }
+        applyDownloadPreferences(
+            preferences[WifiOnlyDownloadsKey] ?: false,
+            preferences[OfflineModeKey] ?: false,
+        )
+        return offlineMode
+    }
+
+    private fun applyDownloadPreferences(wifiOnly: Boolean, offline: Boolean) {
+        check(Looper.myLooper() == downloadManager.applicationLooper)
+        downloadManager.setRequirements(downloadRequirements(wifiOnly))
+        val wasOffline = offlineMode
+        offlineMode = offline
+        if (offline) downloadManager.pauseDownloads()
+        val currentDownloads =
+            if (downloadManager.isInitialized) downloadManager.currentDownloads
+            else downloads.value.values
+        currentDownloads.forEach { download ->
+            if (offline && download.stopReason == Download.STOP_REASON_NONE &&
+                download.state != Download.STATE_COMPLETED && download.state != Download.STATE_REMOVING
+            ) {
+                // Native DownloadService resumes onCreate, so a persisted stop reason also protects restored tasks.
+                downloadManager.setStopReason(download.request.id, OFFLINE_DOWNLOAD_STOP_REASON)
+            } else if (!offline && download.stopReason == OFFLINE_DOWNLOAD_STOP_REASON) {
+                downloadManager.setStopReason(download.request.id, Download.STOP_REASON_NONE)
+            }
+        }
+        if (!offline && wasOffline) downloadManager.resumeDownloads()
+    }
+
+    private fun invalidateStreamUrls(mediaId: String) {
+        AudioQuality.entries.forEach { songUrlCache.invalidate(downloadStreamCacheKey(mediaId, it)) }
     }
 
     fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
@@ -353,22 +395,30 @@ constructor(
                     )
                 }
 
-                if (!shouldPrepareDownload(downloadManager.downloadIndex.getDownload(mediaMetadata.id)?.state)) {
-                    return@withPermit
-                }
+                val previousDownload = downloadManager.downloadIndex.getDownload(mediaMetadata.id)
+                if (!shouldPrepareDownload(previousDownload?.state)) return@withPermit
 
-                val request =
+                val request = previousDownload?.request ?:
                     DownloadRequest
-                        .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
+                        .Builder(
+                            mediaMetadata.id,
+                            mediaMetadata.id.toUri().buildUpon()
+                                .appendQueryParameter(DOWNLOAD_QUALITY_PARAMETER, downloadQuality.name)
+                                .build(),
+                        )
                         .setCustomCacheKey(mediaMetadata.id)
                         .setData(mediaMetadata.title.toByteArray())
                         .build()
-                DownloadService.sendAddDownload(
-                    context,
-                    ExoDownloadService::class.java,
-                    request,
-                    false,
-                )
+                withContext(Dispatchers.Main.immediate) {
+                    val offline = applyDownloadPreferences()
+                    DownloadService.sendAddDownload(
+                        context,
+                        ExoDownloadService::class.java,
+                        request,
+                        if (offline) OFFLINE_DOWNLOAD_STOP_REASON else Download.STOP_REASON_NONE,
+                        false,
+                    )
+                }
 
                 val albumArtwork = database.getSongByIdBlocking(mediaMetadata.id)?.album?.thumbnailUrl
                 downloadArtworkUrls(mediaMetadata.thumbnailUrl, albumArtwork).forEach { artworkUrl ->
@@ -418,6 +468,14 @@ constructor(
         return false
     }
 }
+
+internal const val OFFLINE_DOWNLOAD_STOP_REASON = 1001
+internal const val DOWNLOAD_QUALITY_PARAMETER = "downloadQuality"
+
+internal fun downloadRequirements(wifiOnly: Boolean): Requirements =
+    Requirements(if (wifiOnly) Requirements.NETWORK_UNMETERED else Requirements.NETWORK)
+
+internal fun downloadStreamCacheKey(mediaId: String, quality: AudioQuality): String = "$mediaId:${quality.name}"
 
 internal fun shouldPrepareDownload(downloadState: Int?): Boolean = downloadState != Download.STATE_COMPLETED
 

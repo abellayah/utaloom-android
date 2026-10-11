@@ -7,6 +7,7 @@ package com.metrolist.music.lyrics
 
 import android.content.Context
 import android.util.LruCache
+import com.metrolist.innertube.YouTube
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.utils.NetworkConnectivityObserver
@@ -46,6 +47,7 @@ constructor(
 
     suspend fun getLyrics(mediaMetadata: MediaMetadata): LyricsWithProvider {
         currentLyricsJob?.cancel()
+        if (YouTube.offlineMode) throw CancellationException("Offline mode is enabled")
 
         val enabledProviders = context.dataStore.data
             .map { preferences -> resolveLyricsProviders(preferences) }
@@ -113,6 +115,7 @@ constructor(
         callback: (LyricsResult) -> Unit,
     ) {
         currentLyricsJob?.cancel()
+        if (YouTube.offlineMode) return
 
         val enabledProviders = resolveLyricsProviders(context.dataStore.data.first())
         val cacheKey = LyricsSearchQuery(mediaId, songTitle, songArtists, duration, album, enabledProviders.map { it.name })

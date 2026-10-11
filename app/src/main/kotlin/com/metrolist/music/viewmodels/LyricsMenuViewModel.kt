@@ -7,6 +7,7 @@ package com.metrolist.music.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.metrolist.innertube.YouTube
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.lyrics.LyricsHelper
@@ -83,6 +84,7 @@ constructor(
         mediaMetadata: MediaMetadata,
         lyricsEntity: LyricsEntity?,
     ) {
+        if (YouTube.offlineMode) return
         database.query {
             lyricsEntity?.let(::delete)
             val lyricsWithProvider =

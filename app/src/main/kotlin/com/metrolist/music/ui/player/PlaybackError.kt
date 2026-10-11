@@ -43,8 +43,10 @@ import androidx.media3.common.PlaybackException
 import com.metrolist.music.BuildConfig
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.OfflineModeKey
 import com.metrolist.music.models.MediaMetadata
 import java.time.Instant
+import com.metrolist.music.utils.rememberPreference
 
 @Composable
 fun PlaybackError(
@@ -56,6 +58,7 @@ fun PlaybackError(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val streamClient by playerConnection.currentStreamClient.collectAsState()
     val isOnline by playerConnection.service.connectivityObserver.networkStatus.collectAsState()
+    val offlineMode by rememberPreference(OfflineModeKey, false)
     val causes = remember(error) { error.causeChain() }
     val rawErrorMessages =
         remember(causes) {
@@ -83,8 +86,8 @@ fun PlaybackError(
         }
     val errorMessage =
         playbackErrorMessages(
-            isOnline = isOnline,
-            offlineMessage = stringResource(R.string.error_offline_playback),
+            isOnline = isOnline && !offlineMode,
+            offlineMessage = stringResource(if (offlineMode) R.string.offline_mode_playback_error else R.string.error_offline_playback),
             guidance = guidance,
             rawErrorMessages = rawErrorMessages,
         ).joinToString("\n").ifBlank { stringResource(R.string.error_unknown) }

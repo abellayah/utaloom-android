@@ -50,16 +50,21 @@ import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.AudioQuality
+import com.metrolist.music.constants.DownloadQualityKey
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.MaxImageCacheSizeKey
 import com.metrolist.music.constants.MaxSongCacheSizeKey
+import com.metrolist.music.constants.WifiOnlyDownloadsKey
 import com.metrolist.music.extensions.tryOrNull
 import com.metrolist.music.ui.component.ActionPromptDialog
+import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import android.text.format.Formatter
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -96,6 +101,35 @@ fun StorageSettings(
         key = EnableSongCacheKey,
         defaultValue = true
     )
+    val (downloadQuality, onDownloadQualityChange) = rememberEnumPreference(
+        key = DownloadQualityKey,
+        defaultValue = AudioQuality.AUTO
+    )
+    val (wifiOnlyDownloads, onWifiOnlyDownloadsChange) = rememberPreference(
+        key = WifiOnlyDownloadsKey,
+        defaultValue = false
+    )
+    var showDownloadQualityDialog by remember { mutableStateOf(false) }
+
+    if (showDownloadQualityDialog) {
+        EnumDialog(
+            onDismiss = { showDownloadQualityDialog = false },
+            onSelect = {
+                onDownloadQualityChange(it)
+                showDownloadQualityDialog = false
+            },
+            title = stringResource(R.string.download_quality),
+            current = downloadQuality,
+            values = AudioQuality.entries,
+            valueText = {
+                when (it) {
+                    AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
+                    AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
+                    AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
+                }
+            }
+        )
+    }
 
     var clearDownloads by remember { mutableStateOf(false) }
     var clearCacheDialog by remember { mutableStateOf(false) }
@@ -306,6 +340,41 @@ fun StorageSettings(
                         description = {
                             Text(text = Formatter.formatShortFileSize(context, downloadCacheSize))
                         },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.graphic_eq),
+                        title = { Text(stringResource(R.string.download_quality)) },
+                        description = {
+                            Text(
+                                when (downloadQuality) {
+                                    AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
+                                    AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
+                                    AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
+                                } + "\n" + stringResource(R.string.download_quality_desc)
+                            )
+                        },
+                        onClick = { showDownloadQualityDialog = true },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.wifi_proxy),
+                        title = { Text(stringResource(R.string.wifi_only_downloads)) },
+                        description = { Text(stringResource(R.string.wifi_only_downloads_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = wifiOnlyDownloads,
+                                onCheckedChange = onWifiOnlyDownloadsChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (wifiOnlyDownloads) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onWifiOnlyDownloadsChange(!wifiOnlyDownloads) },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.clear_all),

@@ -19,6 +19,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
 import coil3.request.crossfade
@@ -49,6 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
+import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.File
 import java.io.IOException
@@ -89,6 +91,7 @@ class App :
 
         // Plant logging before extraction services initialize.
         Timber.plant(Timber.DebugTree())
+        YouTube.offlineMode = runBlocking(Dispatchers.IO) { dataStore.data.first()[OfflineModeKey] ?: false }
         InnerTubeXPlayer.initialize(this)
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
@@ -104,6 +107,7 @@ class App :
             // Warm player config, cipher, and optional PO-token state off the first-play path.
             launch(Dispatchers.IO) {
                 delay(2500)
+                if (YouTube.offlineMode) return@launch
                 var waitedMs = 0
                 while (YouTube.visitorData == null && waitedMs < 12_000) {
                     delay(500)
@@ -194,6 +198,11 @@ class App :
     }
 
     private fun observeSettingsChanges() {
+        applicationScope.launch {
+            dataStore.data.map { it[OfflineModeKey] ?: false }.distinctUntilChanged().collect {
+                YouTube.offlineMode = it
+            }
+        }
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
                 .map { it[VisitorDataKey] }
@@ -302,6 +311,14 @@ class App :
         return ImageLoader
             .Builder(this)
             .apply {
+                components {
+                    add(OkHttpNetworkFetcherFactory(callFactory = {
+                        OkHttpClient.Builder().addInterceptor { chain ->
+                            if (YouTube.offlineMode) throw IOException("Offline mode is enabled")
+                            chain.proceed(chain.request())
+                        }.build()
+                    }))
+                }
                 crossfade(true)
                 allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
                 // Memory cache for fast image loading (prevents network requests on recomposition)

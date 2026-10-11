@@ -67,6 +67,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.PlayerMessage
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -147,6 +148,7 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleLike
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMode
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
+import com.metrolist.music.constants.OfflineModeKey
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
@@ -255,6 +257,7 @@ import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
+import java.io.IOException
 import java.time.LocalDateTime
 import javax.inject.Inject
 import kotlin.random.Random
@@ -341,6 +344,8 @@ class MusicService :
     val currentStreamClient = MutableStateFlow<String?>(null)
 
     private lateinit var audioQuality: com.metrolist.music.constants.AudioQuality
+    @Volatile
+    private var offlineMode = false
 
     private var currentQueue: Queue = EmptyQueue
     var queueTitle: String? = null
@@ -638,6 +643,7 @@ class MusicService :
         // never calls dataStore.get() (which does runBlocking internally).
         // This consolidates ~15 main-thread-blocking DataStore reads into 1.
         startupPrefs = runBlocking(Dispatchers.IO) { dataStore.data.first() }
+        offlineMode = startupPrefs!![OfflineModeKey] ?: false
 
         // 3. Connect the processor to the service
         // handled in createExoPlayer
@@ -820,6 +826,7 @@ class MusicService :
                     Timber.tag(TAG).i("QUALITY CHANGED: $oldQuality -> $newQuality")
 
                     val mediaId = player.currentMediaItem?.mediaId ?: return@collect
+                    if (offlineMode || downloadUtil.downloads.value[mediaId]?.state == Download.STATE_COMPLETED) return@collect
                     val currentPosition = player.currentPosition
                     val wasPlaying = player.isPlaying
                     val currentIndex = player.currentMediaItemIndex
@@ -832,8 +839,7 @@ class MusicService :
                     runBlocking(Dispatchers.IO) {
                         try {
                             playerCache.removeResource(mediaId)
-                            downloadCache.removeResource(mediaId)
-                            Timber.tag(TAG).d("Cleared player and download cache for $mediaId")
+                            Timber.tag(TAG).d("Cleared player cache for $mediaId")
                         } catch (e: Exception) {
                             Timber.tag(TAG).e(e, "Failed to clear cache for $mediaId")
                         }
@@ -848,6 +854,36 @@ class MusicService :
                     player.prepare()
                     if (wasPlaying) {
                         player.play()
+                    }
+                }
+        }
+
+        scope.launch {
+            dataStore.data
+                .map { it[OfflineModeKey] ?: false }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    val changed = offlineMode != enabled
+                    offlineMode = enabled
+                    if (changed && enabled) {
+                        crossfadeMessage?.cancel()
+                        crossfadeJob?.cancel()
+                        secondaryPlayer?.let(::releaseExoPlayer)
+                        secondaryPlayer = null
+                        if (fadingPlayer != null) cleanupCrossfade(fadingPlayer!!.audioSessionId)
+                        stopSmartShuffle()
+                        clearAutomix()
+                        retryJob?.cancel()
+                        waitingForNetworkConnection.value = false
+                    }
+                    if (changed && player.mediaItemCount > 0) {
+                        val position = player.currentPosition
+                        val index = player.currentMediaItemIndex
+                        val wasPlaying = player.playWhenReady
+                        player.stop()
+                        player.seekTo(index, position)
+                        player.prepare()
+                        player.playWhenReady = wasPlaying
                     }
                 }
         }
@@ -887,7 +923,7 @@ class MusicService :
         ) { mediaMetadata, showLyrics ->
             mediaMetadata to showLyrics
         }.collectLatest(scope) { (mediaMetadata, showLyrics) ->
-            if (showLyrics && mediaMetadata != null && database
+            if (!offlineMode && showLyrics && mediaMetadata != null && database
                     .lyrics(mediaMetadata.id)
                     .first() == null
             ) {
@@ -1698,7 +1734,7 @@ class MusicService :
             }
         }
 
-        if (!database.hasRelatedSongs(mediaId)) {
+        if (!offlineMode && !database.hasRelatedSongs(mediaId)) {
             val relatedEndpoint =
                 YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()?.relatedEndpoint
                     ?: return
@@ -1860,6 +1896,7 @@ class MusicService :
     }
 
     fun startRadioSeamlessly() {
+        if (offlineMode) return
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("startRadioSeamlessly called before player initialization")
             return
@@ -1956,6 +1993,7 @@ class MusicService :
     }
 
     fun getAutomix(playlistId: String) {
+        if (offlineMode) return
         if (dataStore.get(SimilarContent, true) &&
             !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
         ) {
@@ -2595,7 +2633,7 @@ class MusicService :
             }
         }
 
-        if (cachedAutoLoadMore &&
+        if (!offlineMode && cachedAutoLoadMore &&
             reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
             player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
             currentQueue.hasNextPage() &&
@@ -2877,7 +2915,7 @@ class MusicService :
 
     // ponytail: one bounded radio batch per queue, fetch more only if continuous discovery is needed.
     private fun startSmartShuffle() {
-        if (!playerInitialized.value || !cachedSmartShuffle || !player.shuffleModeEnabled ||
+        if (offlineMode || !playerInitialized.value || !cachedSmartShuffle || !player.shuffleModeEnabled ||
             player.mediaItems.any { it.isSmartShuffleRecommendation } || smartShuffleJob?.isActive == true ||
             player.mediaItemCount == 0 ||
             !(currentQueue is ListQueue || currentQueue is LocalAlbumRadio ||
@@ -3103,6 +3141,11 @@ class MusicService :
 
         if (!playerInitialized.value) {
             Timber.tag(TAG).e(error, "Player error occurred but player not initialized")
+            return
+        }
+
+        if (offlineMode) {
+            player.pause()
             return
         }
 
@@ -3570,6 +3613,10 @@ class MusicService :
                             OkHttpDataSource.Factory(
                                 OkHttpClient
                                     .Builder()
+                                    .addInterceptor { chain ->
+                                        if (offlineMode) throw IOException(getString(R.string.offline_mode_playback_error))
+                                        chain.proceed(chain.request())
+                                    }
                                     .proxy(YouTube.proxy)
                                     .proxyAuthenticator { _, response ->
                                         YouTube.proxyAuth?.let { auth ->
@@ -3878,6 +3925,14 @@ class MusicService :
                 perceptualLoudnessDb = storedFormat?.perceptualLoudnessDb,
                 preserveCachedIfMissing = true,
             )
+            if (offlineMode) {
+                return@Factory offlinePlaybackDataSpec(downloadCache, dataSpec, storedFormat?.contentLength)
+                    ?: throw PlaybackException(
+                        getString(R.string.offline_mode_playback_error),
+                        null,
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    )
+            }
 
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
@@ -4841,6 +4896,7 @@ class MusicService :
      */
     suspend fun getStreamUrl(mediaId: String): String? =
         withContext(Dispatchers.IO) {
+            if (offlineMode) return@withContext null
             try {
                 val song = database.songEntity(mediaId)
                 val playbackData =

@@ -63,6 +63,7 @@ import com.metrolist.music.constants.CountryCodeToName
 import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.constants.HideYoutubeShortsKey
+import com.metrolist.music.constants.OfflineModeKey
 import com.metrolist.music.constants.LanguageCodeToName
 import com.metrolist.music.constants.ProxyEnabledKey
 import com.metrolist.music.constants.ProxyPasswordKey
@@ -101,6 +102,7 @@ fun ContentSettings(
     val (contentLanguage, onContentLanguageChange) = rememberPreference(key = ContentLanguageKey, defaultValue = "system")
     val (contentCountry, onContentCountryChange) = rememberPreference(key = ContentCountryKey, defaultValue = "system")
     val (hideExplicit, onHideExplicitChange) = rememberPreference(key = HideExplicitKey, defaultValue = false)
+    val (offlineMode, onOfflineModeChange) = rememberPreference(OfflineModeKey, false)
     val (hideVideoSongs, onHideVideoSongsChange) = rememberPreference(key = HideVideoSongsKey, defaultValue = false)
     val (hideYoutubeShorts, onHideYoutubeShortsChange) = rememberPreference(key = HideYoutubeShortsKey, defaultValue = false)
     val (showArtistDescription, onShowArtistDescriptionChange) = rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
@@ -428,6 +430,15 @@ fun ContentSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.general),
             items = listOf(
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.offline),
+                    title = { Text(stringResource(R.string.offline_mode)) },
+                    description = { Text(stringResource(R.string.offline_mode_desc)) },
+                    trailingContent = {
+                        Switch(checked = offlineMode, onCheckedChange = onOfflineModeChange)
+                    },
+                    onClick = { onOfflineModeChange(!offlineMode) },
+                ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.language),
                     title = { Text(stringResource(R.string.content_language)) },

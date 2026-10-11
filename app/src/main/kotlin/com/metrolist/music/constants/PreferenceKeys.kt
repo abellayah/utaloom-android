@@ -111,6 +111,10 @@ val UpdateNotificationsEnabledKey = booleanPreferencesKey("updateNotifications")
 
 val AudioQualityKey = stringPreferencesKey("audioQuality")
 
+val DownloadQualityKey = stringPreferencesKey("downloadQuality")
+val WifiOnlyDownloadsKey = booleanPreferencesKey("wifiOnlyDownloads")
+val OfflineModeKey = booleanPreferencesKey("offlineMode")
+
 enum class AudioQuality {
     AUTO,
     LOW,

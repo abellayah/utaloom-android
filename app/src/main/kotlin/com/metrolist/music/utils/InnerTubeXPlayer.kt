@@ -51,7 +51,9 @@ object InnerTubeXPlayer {
         if (applicationContext == null) applicationContext = context.applicationContext
     }
 
-    suspend fun prewarm() = bundle().extractor.prewarm()
+    suspend fun prewarm() {
+        if (!YouTube.offlineMode) bundle().extractor.prewarm()
+    }
 
     suspend fun playerResponseForPlayback(
         videoId: String,
@@ -62,6 +64,7 @@ object InnerTubeXPlayer {
         allowBoundedRange: Boolean = true,
     ): Result<PlaybackData> =
         try {
+            if (YouTube.offlineMode) throw java.io.IOException("Offline mode is enabled")
             val hints =
                 contentHints.copy(
                     isUploaded =

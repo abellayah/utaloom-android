@@ -29,6 +29,7 @@ import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.constants.HideYoutubeShortsKey
 import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.music.constants.OfflineModeKey
 import com.metrolist.music.constants.QuickPicks
 import com.metrolist.music.constants.QuickPicksKey
 import com.metrolist.music.constants.ShowWrappedCardKey
@@ -48,6 +49,7 @@ import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.utils.get
+import com.metrolist.music.utils.preference
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -100,6 +102,7 @@ class HomeViewModel @Inject constructor(
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
     val isRandomizing = MutableStateFlow(false)
+    private val offlineMode by preference(context, OfflineModeKey, false)
 
     private val quickPicksEnum = context.dataStore.data.map {
         it[QuickPicksKey].toEnum(QuickPicks.QUICK_PICKS)
@@ -330,7 +333,7 @@ class HomeViewModel @Inject constructor(
                 val recentSong = database.latestEvent().first()?.song
                 val ytSimilarSongs = mutableListOf<Song>()
 
-                if (recentSong != null) {
+                if (recentSong != null && !offlineMode) {
                     val endpoint = YouTube.next(WatchEndpoint(videoId = recentSong.id)).getOrNull()?.relatedEndpoint
                     if (endpoint != null) {
                         YouTube.related(endpoint).onSuccess { page ->
@@ -440,6 +443,10 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun load() {
         isLoading.value = true
+        if (offlineMode) {
+            isLoading.value = false
+            return
+        }
         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
         val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
         val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
@@ -654,6 +661,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun loadAccountInfo() {
+        if (offlineMode) return
         YouTube.accountInfo().onSuccess { info ->
             accountName.value = info.name
             accountImageUrl.value = info.thumbnailUrl
@@ -663,6 +671,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun loadAccountPlaylists() {
+        if (offlineMode) return
         val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
         YouTube.library("FEmusic_liked_playlists").completed().onSuccess {
             accountPlaylists.value = it.items.filterIsInstance<PlaylistItem>()
@@ -683,7 +692,7 @@ class HomeViewModel @Inject constructor(
         (this as List<T?>).filterNotNull()
 
     fun refresh() {
-        if (isRefreshing.value) return
+        if (isRefreshing.value || offlineMode) return
         isRefreshing.value = true
         viewModelScope.launch(Dispatchers.IO) {
             // If a chip is selected, reload the chip's content instead of the default home
@@ -720,7 +729,7 @@ class HomeViewModel @Inject constructor(
     init {
         // Run sync in separate coroutine with cooldown to avoid blocking UI
         viewModelScope.launch(Dispatchers.IO) {
-            syncUtils.tryAutoSync()
+            if (!offlineMode) syncUtils.tryAutoSync()
         }
 
         var wasOffline = !networkConnectivity.networkStatus.value
@@ -788,7 +797,7 @@ class HomeViewModel @Inject constructor(
     private var isHomeDataLoaded = false
 
     fun loadHomeData() {
-        if (isHomeDataLoaded) return
+        if (isHomeDataLoaded || offlineMode) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val cookie = context.dataStore.data

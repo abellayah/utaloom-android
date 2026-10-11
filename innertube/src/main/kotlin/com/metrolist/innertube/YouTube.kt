@@ -90,6 +90,12 @@ import kotlin.random.Random
 object YouTube {
     private val innerTube = InnerTube()
 
+    var offlineMode: Boolean
+        get() = innerTube.offlineMode
+        set(value) {
+            innerTube.offlineMode = value
+        }
+
     var locale: YouTubeLocale
         get() = innerTube.locale
         set(value) {

@@ -31,15 +31,23 @@ class ExoDownloadService : DownloadService(
     lateinit var downloadUtil: DownloadUtil
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val offline = downloadUtil.applyDownloadPreferences()
+        if (offline && intent?.action == ACTION_ADD_DOWNLOAD) {
+            intent.putExtra(KEY_STOP_REASON, OFFLINE_DOWNLOAD_STOP_REASON)
+        }
         if (intent?.action == REMOVE_ALL_PENDING_DOWNLOADS) {
             downloadManager.currentDownloads.forEach { download ->
                 downloadManager.removeDownload(download.request.id)
             }
         }
-        return super.onStartCommand(intent, flags, startId)
+        return super.onStartCommand(intent, flags, startId).also {
+            downloadUtil.applyDownloadPreferences()
+        }
     }
 
-    override fun getDownloadManager() = downloadUtil.downloadManager
+    override fun getDownloadManager() = downloadUtil.downloadManager.also {
+        downloadUtil.applyDownloadPreferences()
+    }
 
     override fun getScheduler(): Scheduler = PlatformScheduler(this, JOB_ID)
 
