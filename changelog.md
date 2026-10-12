@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.2.0] - 2026-10-12
+
+### Added
+- **offline:** add download-only mode and download preferences (`3baa05c`)
+- **queue:** save displayed queue as a local playlist (`6cdc52c`)
+- **lyrics:** add free Google Translate provider on Android (`d4f8c67`)
+- **changelog:** AI-generated changelog on release (`057b524`)
+
 ## [v1.1.1] - 2026-10-10
 
 ### Fixed
