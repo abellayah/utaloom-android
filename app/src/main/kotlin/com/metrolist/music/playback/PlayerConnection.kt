@@ -159,6 +159,26 @@ class PlayerConnection(
             initialState.third,
         )
 
+    val currentPosition: Long
+        get() {
+            val castHandler = service.castConnectionHandler
+            return if (castHandler?.isCasting?.value == true) {
+                castHandler.currentPosition
+            } else {
+                runCatching { player.currentPosition }.getOrDefault(0L)
+            }
+        }
+
+    val duration: Long
+        get() {
+            val castHandler = service.castConnectionHandler
+            return if (castHandler?.isCasting?.value == true) {
+                castHandler.currentDuration
+            } else {
+                runCatching { player.duration }.getOrDefault(0L)
+            }
+        }
+
     val mediaMetadata = MutableStateFlow(getPlayerOrNull()?.currentMetadata)
     // stateIn so the latest DB result is cached and shared: on resume / re-subscription the value
     // is available immediately instead of re-running the Room query (which delayed now-playing

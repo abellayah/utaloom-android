@@ -56,6 +56,12 @@ class CastConnectionHandler(
     var isSyncingFromCast = false
         private set
 
+    val currentPosition: Long
+        get() = runCatching { castPlayer?.currentPosition }.getOrNull() ?: _castPosition.value
+
+    val currentDuration: Long
+        get() = runCatching { castPlayer?.duration?.takeUnless { it == C.TIME_UNSET } }.getOrNull() ?: _castDuration.value
+
     private var castContext: CastContext? = null
     private var castPlayer: RemoteCastPlayer? = null
     private var positionJob: Job? = null

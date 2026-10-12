@@ -346,8 +346,9 @@ fun ExperimentalLyrics(
             return@LaunchedEffect
         }
         
-        var lastPlayerPos = playerConnection.player.currentPosition
+        var lastPlayerPos = playerConnection.currentPosition
         var lastUpdateTime = System.currentTimeMillis()
+        var wasPlaying = playerConnection.isEffectivelyPlaying.value
         
         while (isActive) {
             withFrameNanos { _ -> }
@@ -358,13 +359,15 @@ fun ExperimentalLyrics(
             val position = if (isSeeking) {
                 sliderPosition!!
             } else {
-                val playerPos = playerConnection.player.currentPosition
-                if (playerPos != lastPlayerPos) {
+                val isPlaying = playerConnection.isEffectivelyPlaying.value
+                val playerPos = playerConnection.currentPosition
+                if (playerPos != lastPlayerPos || (isPlaying && !wasPlaying)) {
                     lastPlayerPos = playerPos
                     lastUpdateTime = now
                 }
+                wasPlaying = isPlaying
                 val elapsed = now - lastUpdateTime
-                lastPlayerPos + (if (playerConnection.player.isPlaying) elapsed else 0)
+                lastPlayerPos + (if (isPlaying) elapsed else 0)
             }
             
             currentPositionState = position
@@ -793,7 +796,7 @@ fun ExperimentalLyrics(
                                                 } else if (selectedIndices.size < maxSelectionLimit) selectedIndices.add(index)
                                                 else showMaxSelectionToast = true
                                             } else if (changeLyrics && !isGuest) {
-                                                if (item.time < playerConnection.player.duration + 30000L) {
+                                                if (item.time < playerConnection.duration + 30000L) {
                                                     playerConnection.seekTo((item.time - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
                                                 } else {
                                                     scrollTargetIndex = index

@@ -21,6 +21,12 @@ class CastConnectionHandler(
     val castVolume: StateFlow<Float> = MutableStateFlow(1f)
     val isSyncingFromCast = false
 
+    val currentPosition: Long
+        get() = castPosition.value
+
+    val currentDuration: Long
+        get() = castDuration.value
+
     fun initialize() = false
 
     fun disconnect() = Unit

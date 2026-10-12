@@ -528,8 +528,8 @@ private fun ThumbnailItem(
                     onDoubleTap = { offset ->
                         if (isListenTogetherGuest) return@detectTapGestures
 
-                        val currentPosition = playerConnection.player.currentPosition
-                        val duration = playerConnection.player.duration
+                        val currentPosition = playerConnection.currentPosition
+                        val duration = playerConnection.duration
 
                         val now = System.currentTimeMillis()
                         if (incrementalSeekSkipEnabled && now - lastTapTime < 1000) {
@@ -545,10 +545,10 @@ private fun ThumbnailItem(
                                 (layoutDirection == LayoutDirection.Rtl && offset.x > size.width / 2)
 
                         if (isLeftSide) {
-                            playerConnection.player.seekTo((currentPosition - skipAmount).coerceAtLeast(0))
+                            playerConnection.seekTo((currentPosition - skipAmount).coerceAtLeast(0))
                             onSeek(context.getString(R.string.seek_backward_dynamic, skipAmount / 1000), true)
                         } else {
-                            playerConnection.player.seekTo((currentPosition + skipAmount).coerceAtMost(duration))
+                            playerConnection.seekTo((currentPosition + skipAmount).coerceAtMost(duration))
                             onSeek(context.getString(R.string.seek_forward_dynamic, skipAmount / 1000), true)
                         }
                     }

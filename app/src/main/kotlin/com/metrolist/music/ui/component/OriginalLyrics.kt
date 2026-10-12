@@ -567,7 +567,7 @@ fun OriginalLyrics(
             delay(8) // Faster update for word-by-word animation
             val sliderPosition = sliderPositionProvider()
             isSeeking = sliderPosition != null
-            val position = sliderPosition ?: playerConnection.player.currentPosition
+            val position = sliderPosition ?: playerConnection.currentPosition
             currentPlaybackPosition = position
             val lyricsOffset = currentSong?.song?.lyricsOffset ?: 0
             currentLineIndex = findCurrentLineIndex(lines, position + lyricsOffset)

@@ -1854,7 +1854,7 @@ fun BottomSheetPlayer(
                                 InlineLyricsView(
                                     mediaMetadata = mediaMetadata,
                                     showLyrics = showLyrics,
-                                    positionProvider = { effectivePosition },
+                                    sliderPositionProvider = sliderPositionProvider,
                                 )
                             } else {
                                 Thumbnail(
@@ -1917,7 +1917,7 @@ fun BottomSheetPlayer(
                                 InlineLyricsView(
                                     mediaMetadata = mediaMetadata,
                                     showLyrics = showLyrics,
-                                    positionProvider = { effectivePosition },
+                                    sliderPositionProvider = sliderPositionProvider,
                                 )
                             } else {
                                 Thumbnail(
@@ -1973,7 +1973,7 @@ fun BottomSheetPlayer(
 fun InlineLyricsView(
     mediaMetadata: MediaMetadata?,
     showLyrics: Boolean,
-    positionProvider: () -> Long,
+    sliderPositionProvider: () -> Long? = { null },
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val currentLyrics by playerConnection.currentLyrics.collectAsStateWithLifecycle(initialValue = null)
@@ -2092,7 +2092,7 @@ fun InlineLyricsView(
             else -> {
                 val lyricsContent: @Composable () -> Unit = {
                     Lyrics(
-                        sliderPositionProvider = positionProvider,
+                        sliderPositionProvider = sliderPositionProvider,
                         modifier = Modifier.padding(horizontal = 24.dp),
                         showLyrics = showLyrics,
                     )

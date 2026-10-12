@@ -336,18 +336,21 @@ private fun WordLevelLyrics(
 
     LaunchedEffect(isActiveLine) {
         if (isActiveLine) {
-            var lastPlayerPos = playerConnection.player.currentPosition
+            var lastPlayerPos = playerConnection.currentPosition
             var lastUpdateTime = System.currentTimeMillis()
+            var wasPlaying = playerConnection.isEffectivelyPlaying.value
             while (isActive) {
                 withFrameMillis {
                     val now = System.currentTimeMillis()
-                    val playerPos = playerConnection.player.currentPosition
-                    if (playerPos != lastPlayerPos) {
+                    val isPlaying = playerConnection.isEffectivelyPlaying.value
+                    val playerPos = playerConnection.currentPosition
+                    if (playerPos != lastPlayerPos || (isPlaying && !wasPlaying)) {
                         lastPlayerPos = playerPos
                         lastUpdateTime = now
                     }
+                    wasPlaying = isPlaying
                     val elapsed = now - lastUpdateTime
-                    smoothPosition = lastPlayerPos + lyricsOffset + (if (playerConnection.player.isPlaying) elapsed else 0)
+                    smoothPosition = lastPlayerPos + lyricsOffset + (if (isPlaying) elapsed else 0)
                 }
             }
         }
