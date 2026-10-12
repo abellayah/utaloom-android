@@ -38,6 +38,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowNetworkCapabilities
 import org.robolectric.shadows.ShadowNetworkInfo
 import java.io.File
 import java.nio.file.Files
@@ -166,8 +167,20 @@ class DownloadPolicyTest {
         val connectivity = context.getSystemService<ConnectivityManager>()!!
         val shadow = shadowOf(connectivity)
         shadow.setActiveNetworkInfo(ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED, type, 0, true, true))
-        val capabilities = NetworkCapabilities()
-        shadowOf(capabilities).addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        val capabilities = ShadowNetworkCapabilities.newInstance().apply {
+            val addTransport = NetworkCapabilities::class.java.getDeclaredMethod("addTransportType", Int::class.javaPrimitiveType)
+            val addCap = NetworkCapabilities::class.java.getDeclaredMethod("addCapability", Int::class.javaPrimitiveType)
+            addTransport.isAccessible = true
+            addCap.isAccessible = true
+            if (type == ConnectivityManager.TYPE_WIFI) {
+                addTransport.invoke(this, NetworkCapabilities.TRANSPORT_WIFI)
+                addCap.invoke(this, NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            } else {
+                addTransport.invoke(this, NetworkCapabilities.TRANSPORT_CELLULAR)
+            }
+            addCap.invoke(this, NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            addCap.invoke(this, NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
         shadow.setNetworkCapabilities(connectivity.activeNetwork!!, capabilities)
         shadow.networkCallbacks.forEach {
             it.onAvailable(connectivity.activeNetwork!!)
