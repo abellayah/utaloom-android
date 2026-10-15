@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import com.metrolist.music.constants.BottomSheetAnimationSpec
+import com.metrolist.music.constants.BottomSheetSoftAnimationSpec
 import com.metrolist.music.constants.NavigationBarAnimationSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -194,34 +196,34 @@ class BottomSheetState(
         1f - (animatable.upperBound!! - animatable.value) / (animatable.upperBound!! - collapsedBound)
     }
 
-    fun collapse(animationSpec: AnimationSpec<Dp>) {
+    fun collapse(animationSpec: AnimationSpec<Dp> = BottomSheetAnimationSpec, initialVelocity: Dp = 0.dp) {
         onAnchorChanged(collapsedAnchor)
         coroutineScope.launch {
-            animatable.animateTo(collapsedBound, animationSpec)
+            animatable.animateTo(collapsedBound, animationSpec, initialVelocity)
         }
     }
 
-    fun expand(animationSpec: AnimationSpec<Dp>) {
+    fun expand(animationSpec: AnimationSpec<Dp> = BottomSheetAnimationSpec, initialVelocity: Dp = 0.dp) {
         onAnchorChanged(expandedAnchor)
         coroutineScope.launch {
-            animatable.animateTo(animatable.upperBound!!, animationSpec)
+            animatable.animateTo(animatable.upperBound!!, animationSpec, initialVelocity)
         }
     }
 
-    private fun collapse() {
-        collapse(SpringSpec())
+    private fun collapse(initialVelocity: Dp = 0.dp) {
+        collapse(BottomSheetAnimationSpec, initialVelocity)
     }
 
-    private fun expand() {
-        expand(SpringSpec())
+    private fun expand(initialVelocity: Dp = 0.dp) {
+        expand(BottomSheetAnimationSpec, initialVelocity)
     }
 
     fun collapseSoft() {
-        collapse(spring(stiffness = Spring.StiffnessMediumLow))
+        collapse(BottomSheetSoftAnimationSpec)
     }
 
     fun expandSoft() {
-        expand(spring(stiffness = Spring.StiffnessMediumLow))
+        expand(BottomSheetSoftAnimationSpec)
     }
 
     fun dismiss() {
@@ -242,14 +244,15 @@ class BottomSheetState(
     }
 
     fun performFling(velocity: Float, onDismiss: (() -> Unit)?) {
+        val velocityDp = (velocity / 1000f).dp
         if (velocity > 250) {
-            expand()
+            expand(initialVelocity = velocityDp)
         } else if (velocity < -250) {
             if (value < collapsedBound && onDismiss != null) {
                 dismiss()
                 onDismiss.invoke()
             } else {
-                collapse()
+                collapse(initialVelocity = velocityDp)
             }
         } else {
             val l0 = dismissedBound

@@ -7,6 +7,7 @@ package com.metrolist.music.ui.component
 
 import android.graphics.BlurMaskFilter
 import android.os.Build
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
@@ -167,16 +168,14 @@ internal fun LyricsLine(
         fun LyricContent() {
             // render.js depth: inactive lines shrink to 0.97 and blur by distance (0.9px per line, max 4).
             val distance = if (isSynced && isAutoScrollEnabled && displayedCurrentLineIndex >= 0) abs(index - displayedCurrentLineIndex) else 0
+            // iOS Apple Music style lyrics depth: active line springs up to 1.02f, inactive lines rest at 0.96f
             val lineScale by animateFloatAsState(
-                if (isActiveLine || !isSynced) 1f else 0.97f,
-                tween(550, easing = FastOutSlowInEasing),
+                targetValue = if (isActiveLine || !isSynced) 1.02f else 0.96f,
+                animationSpec = spring(
+                    dampingRatio = 0.78f,
+                    stiffness = 380f,
+                ),
                 label = "lyricsLineScale",
-            )
-            val lineBlur by animateFloatAsState(
-                // ponytail: lines >6 away are offscreen, so skip their blur layer to keep the GPU idle.
-                if (isActiveLine || distance > 6) 0f else distance.coerceAtMost(4) * 0.9f,
-                tween(350),
-                label = "lyricsLineBlur",
             )
             Column(
                 modifier = Modifier.fillMaxWidth().graphicsLayer {
@@ -187,20 +186,20 @@ internal fun LyricsLine(
                         TextAlign.Center -> TransformOrigin.Center
                         else -> TransformOrigin(0f, 0.5f)
                     }
-                    // RenderEffect is API 31+. Older devices just skip the blur.
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && lineBlur > 0.1f) {
-                        val px = lineBlur.dp.toPx()
-                        renderEffect = BlurEffect(px, px, TileMode.Decal)
-                    } else {
-                        renderEffect = null
-                    }
                 },
                 horizontalAlignment = agentAlignment,
             ) {
-                // render.js: lit line is white, every other line a flat 0.32 white. Released lines fade out over 350ms.
+                // Lit line is high luminance, inactive line is soft alpha (0.35). Zero GPU blur overdraw.
                 val focusedAlpha = PENDING_ALPHA
                 val targetAlpha = if (!isSynced || isActiveLine) 1f else INACTIVE_ALPHA
-                val animatedAlpha by animateFloatAsState(targetAlpha, tween(350), label = "lyricsLineAlpha")
+                val animatedAlpha by animateFloatAsState(
+                    targetValue = targetAlpha,
+                    animationSpec = spring(
+                        dampingRatio = 0.82f,
+                        stiffness = 380f,
+                    ),
+                    label = "lyricsLineAlpha",
+                )
                 val lineColor = expressiveAccent.copy(alpha = animatedAlpha)
                 
                 val romanizedTextState by item.romanizedTextFlow.collectAsStateWithLifecycle()

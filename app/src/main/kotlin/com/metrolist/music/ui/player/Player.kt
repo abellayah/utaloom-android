@@ -1727,13 +1727,31 @@ fun BottomSheetPlayer(
 
                             Spacer(Modifier.width(8.dp))
 
+                            val standardPlayPauseInteractionSource = remember { MutableInteractionSource() }
+                            val isStandardPlayPausePressed by standardPlayPauseInteractionSource.collectIsPressedAsState()
+                            val standardPlayPauseScale by animateFloatAsState(
+                                targetValue = if (isStandardPlayPausePressed) 0.90f else 1.0f,
+                                animationSpec = spring(
+                                    dampingRatio = 0.75f,
+                                    stiffness = 400f,
+                                ),
+                                label = "standardPlayPauseScale",
+                            )
+
                             Box(
                                 modifier =
                                     Modifier
                                         .size(72.dp)
+                                        .graphicsLayer {
+                                            scaleX = standardPlayPauseScale
+                                            scaleY = standardPlayPauseScale
+                                        }
                                         .clip(RoundedCornerShape(playPauseRoundness))
                                         .background(textButtonColor)
-                                        .clickable {
+                                        .clickable(
+                                            interactionSource = standardPlayPauseInteractionSource,
+                                            indication = null,
+                                        ) {
                                             if (isListenTogetherGuest) {
                                                 playerConnection.toggleMute()
                                                 return@clickable
