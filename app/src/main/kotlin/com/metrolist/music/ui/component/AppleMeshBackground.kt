@@ -61,7 +61,6 @@ fun AppleMeshBackground(
                     ImageRequest.Builder(context)
                         .data(url)
                         .size(16, 16)
-                        .allowHardware(true)
                         .build()
                 }
 
