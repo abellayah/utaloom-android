@@ -37,6 +37,20 @@ jobs:
       - name: Make Gradlew Executable
         run: chmod +x gradlew
 
+      - name: Ensure Debug Keystore Exists
+        run: |
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore app/persistent-debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          cp app/persistent-debug.keystore ~/.android/debug.keystore
+          ls -la app/persistent-debug.keystore ~/.android/debug.keystore
+
       - name: Build Android APK (FOSS Debug)
         run: |
           ./gradlew :app:assembleFossDebug --console=plain --warning-mode summary -x lint -x lintFossDebug
