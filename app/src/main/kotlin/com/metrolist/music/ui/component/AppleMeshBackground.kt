@@ -45,7 +45,7 @@ fun AppleMeshBackground(
 ) {
     val context = LocalContext.current
 
-    AnimatedContent(
+    AnimatedContent<String?>(
         targetState = thumbnailUrl,
         transitionSpec = {
             fadeIn(tween(750)).togetherWith(fadeOut(tween(750)))
@@ -57,7 +57,7 @@ fun AppleMeshBackground(
     ) { url ->
         Box(Modifier.fillMaxSize()) {
             if (url != null) {
-                val request = remember(url) {
+                val request = remember<ImageRequest>(url) {
                     ImageRequest.Builder(context)
                         .data(url)
                         .size(16, 16)
